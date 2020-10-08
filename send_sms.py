@@ -1,12 +1,13 @@
 import argparse
-import re
-import os
-import sys
-import requests
 import csv
+import os
+import re
+import requests
+import sys
 
 
 class SMS:
+    """SMS class"""
     def __init__(self, phone_number, text, user, password, sender=""):
         self.phone_number = phone_number
         self.text = text
@@ -21,19 +22,25 @@ class SMS:
     password = ""
 
     raw_message = ""
+    """SMS gateway url"""
     url = 'https://smesx1.smeskom.pl:2200/smesx'
 
     valid = False
 
+    """Validate SMS data"""
     def validate(self):
         check = True
+        """Basic phone number regex validation"""
         if not re.findall(r'\+48\d{9}|^\d{9}', self.phone_number):
             check = False
         elif self.sender != "":
+            self.sender = self.sender.replace(' ', '')
+            """Sender ID valdation"""
             if not re.findall(r'^[A-z0-9]{1,11}$', self.sender):
                 check = False
         return check
 
+    """Compose request"""
     def compose(self):
         self.raw_message = '''
             <?xml version="1.0" encoding="UTF-8"?>
@@ -50,14 +57,33 @@ class SMS:
                        self.phone_number,
                        self.text)
 
+    """Validate, Compose and Send SMS"""
     def send(self):
         self.valid = self.validate()
         if self.valid:
             self.compose()
             status = requests.post(self.url, {'xml': self.raw_message})
+            try:
+                """Search for error code"""
+                error_code = re.search(r'<fail_code>(.*?)</fail_code>',
+                                       status.text).group(1)
+            except AttributeError:
+                """Happens if there is no error"""
+                error_code = "-"
+            try:
+                """Search for error description"""
+                error_description = re.search(r'<fail_description>(.*?)'
+                                              r'</fail_description>',
+                                              status.text).group(1)
+            except AttributeError:
+                """Happens if there is no error"""
+                error_description = "-"
+            """Search for execution status"""
             status = re.search(r'<execution_status>(.*?)</execution_status>',
                                status.text).group(1)
-            return status
+            result = "Status: {}, Error code: {}, Error description: {}"
+            result = result.format(status, error_code, error_description)
+            return result
         return self.valid
 
 
@@ -69,7 +95,8 @@ parser.add_argument('username',
 parser.add_argument('password',
                     type=str,
                     help='A required password string argument')
-parser.add_argument('phone_number',
+parser.add_argument('-P',
+                    '--phone_number',
                     type=str,
                     help='Phone number.'
                          'Example: "+48 123 123 123" or "+48123123123"')
@@ -111,15 +138,23 @@ if not args.username or not args.password:
     print("Wrong username or password")
     EXIT = True
 
-if not re.findall(r'\+48\d{9}|^\d{9}', args.phone_number):
-    print("Wrong phone number")
-    EXIT = True
+if args.phone_number:
+    if not re.findall(r'\+48\d{9}|^\d{9}', args.phone_number):
+        print("Wrong phone number")
+        EXIT = True
 
 if EXIT:
     print("SMS not sent")
     sys.exit()
 
 messages = []
+
+if args.text and args.phone_number:
+    messages.append(SMS(args.phone_number,
+                        args.text,
+                        args.user,
+                        args.password,
+                        args.sender or ""))
 
 if args.csv:
     with open(args.csv, 'r') as csv_file:
